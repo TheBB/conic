@@ -11,10 +11,13 @@ import click
 @click.option('--mesh', type=str, default='mesh.dat')
 @click.option('--res', type=str, default='cont.res')
 @click.option('--center', type=float, nargs=4, default=(0,0,0,0))
-@click.option('--out', type=str, default=None)
 @click.option('--variable', type=click.Choice(['sqrtk', 't', 'w', 'ua']), prompt=True)
 @click.option('--arrow-skip', type=int, default=10)
-def main(mesh, res, center, variable, out, arrow_skip):
+@click.option('--attack-angle', type=float, default=4.5)
+@click.option('--rad', type=float, default=9260)
+def main(mesh, res, center, variable, arrow_skip, attack_angle, rad):
+
+    attack_angle /= 180 / np.pi
 
     with FortranFile(mesh, 'r') as f:
         npts, _, imax, jmax, kmax, _ = f.read_ints()
@@ -43,7 +46,7 @@ def main(mesh, res, center, variable, out, arrow_skip):
     xL, yB = 1500.0, 250.0
     coords[:,0] -= center[0]
     coords[:,1] -= center[1]
-    tt = center[3] / 180 * np.pi
+    tt = (90 - center[3]) / 180 * np.pi
 
     xf = np.zeros((3,4), dtype='f4')
     xf[0,:] = np.array([-.5, .5, -.5, .5]) * xL
@@ -66,15 +69,11 @@ def main(mesh, res, center, variable, out, arrow_skip):
 
 
     # Circular cone
-    aa = 4.5 / 180 * np.pi
-    zb = center[2] - .5 * xL * np.tan(aa)
-
-    xy2 = np.zeros(xy.shape, dtype='f4')
-    xy2[idx_out,:] = coords[idx_in+2,:]
+    zb = center[2] - .5 * xL * np.tan(attack_angle)
 
     conal_idx_in, conal_idx_out = [], []
     for ip, kpt in tqdm(zip(idx_out, idx_in)):
-        z = np.linalg.norm(xy[ip,:2]) * np.tan(aa) + zb
+        z = np.linalg.norm(xy[ip,:2]) * np.tan(attack_angle) + zb
         for kp in range(kpt, kpt + kmax - 1):
             zp = coords[kp,2]
             zp1 = coords[kp+1,2]
@@ -85,146 +84,40 @@ def main(mesh, res, center, variable, out, arrow_skip):
         conal_idx_in.append(kp)
         conal_idx_out.append(ip)
 
-    stk = np.zeros((imax*jmax,), dtype='f4')
-    stk[conal_idx_out] = np.sqrt(tk[conal_idx_in])
-    ucon = np.zeros((imax*jmax,2), dtype='f4')
+    ucon = np.empty((imax*jmax,2), dtype='f4')
+    ucon[:] = np.NAN
     ucon[conal_idx_out,:] = u[conal_idx_in,:2]
 
-
-    # Height circles
-    r1, r2, x0, y0 = 5000.0, 10000.0, 0.0, 0.0
-    angs = np.linspace(0, 2 * np.pi, 100, dtype='f4')
-    xc = np.zeros((100, 3), dtype='f4')
-    xc[:,0] = np.sin(angs)
-    xc[:,1] = np.cos(angs)
-    xc[:,2] = np.tan(angs)
-    xc2 = xc * r2
-    xc *= r1
-    xc[:,2] += zb
-    xc2[:,2] += zb
+    scalar = np.empty((imax*jmax,), dtype='f4')
+    scalar[:] = np.NAN
+    if variable == 'sqrtk':
+        scalar[conal_idx_out] = np.sqrt(tk[conal_idx_in])
 
 
-    # Plotting
-    if out is None:
-        X = xy[:,0].reshape((jmax, imax))
-        Y = xy[:,1].reshape((jmax, imax))
-        C = xy[:,2].reshape((jmax, imax))
-        UX = ucon[:,0].reshape((jmax,imax))
-        UY = ucon[:,1].reshape((jmax,imax))
-        UA = np.linalg.norm(ucon, axis=1).reshape((jmax,imax))
-        K = arrow_skip
-        plt.axes().set_axis_bgcolor('white')
-        plt.pcolormesh(X, Y, C, alpha=0.15, shading='gouraud', cmap=plt.get_cmap('terrain'))
-        plt.quiver(X[::K,::K], Y[::K,::K], UX[::K,::K], UY[::K,::K], UA[::K,::K])
-        plt.fill(cf[0,(0,1,3,2)], cf[1,(0,1,3,2)], color='#ffffff')
-        plt.plot(xc[:,0], xc[:,1], color='#ffffff', linewidth=1.5)
-        plt.plot(xc2[:,0], xc2[:,1], color='#ffffff', linewidth=1.5)
-        plt.axes().set_aspect(1)
-        plt.xlim((min(X.flat), max(X.flat)))
-        plt.ylim((min(Y.flat), max(Y.flat)))
-        plt.axis('off')
-        plt.colorbar()
-        plt.show()
+    X = xy[:,0].reshape((jmax, imax))
+    Y = xy[:,1].reshape((jmax, imax))
+    C = scalar.reshape((jmax, imax))
+    UX = ucon[:,0].reshape((jmax,imax))
+    UY = ucon[:,1].reshape((jmax,imax))
+    UA = np.linalg.norm(ucon, axis=1).reshape((jmax,imax))
+    K = arrow_skip
 
-        return
+    plt.pcolormesh(X, Y, np.ma.masked_where(np.isnan(C), C), shading='gouraud')
+    plt.colorbar()
+    plt.quiver(X[::K,::K], Y[::K,::K], UX[::K,::K], UY[::K,::K], UA[::K,::K], pivot='middle')
 
+    plt.fill(cf[0,(0,1,3,2)], cf[1,(0,1,3,2)], color='#ffffff')
+    max_rad = max(np.linalg.norm(xy[conal_idx_out,:2], axis=1))
+    for r in np.arange(rad, max_rad, rad):
+        angs = np.linspace(0, 2 * np.pi, 100, dtype='f4')
+        xs = r * np.sin(angs)
+        ys = r * np.cos(angs)
+        plt.plot(xs, ys, color='#ffffff', linewidth=1.5)
 
-    with FortranFile(out + '.pos1', 'w') as f:
-        f.write_record(coords)
-    with FortranFile(out + '.pos2', 'w') as f:
-        f.write_record(xy)
-    with FortranFile(out + '.ter', 'w') as f:
-        f.write_record(xy[:,2])
-    with FortranFile(out + '.pos3', 'w') as f:
-        f.write_record(cf.T)
-    with FortranFile(out + '.ter3', 'w') as f:
-        f.write_record(cf[2,:])
-    with FortranFile(out + '.pos4', 'w') as f:
-        f.write_record(xc)
-    with FortranFile(out + '.pos5', 'w') as f:
-        f.write_record(xc2)
-    with FortranFile(out + '.niv', 'w') as f:
-        f.write_record(xy2)
-    with FortranFile(out + '.scl', 'w') as f:
-        if variable == 'sqrtk':
-            f.write_record(stk)
-        elif variable == 't':
-            f.write_record(pt)
-        elif variable == 'w':
-            f.write_record(u[:,2])
-        elif variable == 'ua':
-            f.write_record(np.linalg.norm(ucon, axis=1))
-    with FortranFile(out + '.vec', 'w') as f:
-        f.write_record(ucon)
+    plt.plot([0, -max_rad * np.cos(tt)], [0, -max_rad * np.sin(tt)], color='#ffffff', linewidth=1.5)
 
-    with open(out + '.dx', 'w') as f:
-        f.write('# OpenDX header file\n\n')
-
-        f.write('# Nodes\n')
-        f.write('object 101 class array type float rank 1 shape 3 items {} lsb binary\n'.format(imax * jmax))
-        f.write('data file {}.pos2, 4\n'.format(out))
-        f.write('object 103 class array type float rank 1 shape 3 items {} lsb binary\n'.format(imax * jmax))
-        f.write('data file {}.niv, 4\n'.format(out))
-        f.write('attribute "dep" string "positions"\n\n')
-
-        f.write('# Connectivity, structured mesh\n')
-        f.write('object 102 class gridconnections counts {} {}\n'.format(jmax, imax))
-        f.write('attribute "element type" string "quads"\n')
-        f.write('attribute "ref" string "positions"\n\n')
-
-        f.write('object 104 class array type float rank 0 items {} lsb binary\n'.format(imax * jmax))
-        f.write('data file {}.ter, 4\n'.format(out))
-        f.write('attribute "dep" string "positions"\n\n')
-
-        f.write('# Scalar field\n')
-        f.write('object 4 class array type float rank 0 items {} lsb binary\n'.format(imax * jmax))
-        f.write('data file {}.scl, 4\n'.format(out))
-        f.write('attribute "dep" string "positions"\n\n')
-
-        f.write('# Velocity vector field\n')
-        f.write('object 3 class array type float rank 1 shape 2 items {} lsb binary\n'.format(imax * jmax))
-        f.write('data file {}.vec, 4\n'.format(out))
-        f.write('attribute "dep" string "positions"\n\n')
-
-        f.write('# Airport\n')
-        f.write('object 105 class array type float rank 1 shape 3 items 4 lsb binary\n')
-        f.write('data file {}.pos3, 4\n'.format(out))
-        f.write('object 106 class gridconnections counts 2 2\n')
-        f.write('attribute "element type" string "quads"\n')
-        f.write('attribute "ref" string "positions"\n\n')
-
-        f.write('object 107 class array type float rank 0 items 4 lsb binary\n')
-        f.write('data file {}.ter3, 4\n'.format(out))
-        f.write('attribute "dep" string "positions"\n\n')
-
-        f.write('object 108 class array type float rank 1 shape 3 items 100 lsb binary\n')
-        f.write('data file {}.pos4, 4\n'.format(out))
-        f.write('object 109 class array type float rank 1 shape 3 items 100 lsb binary\n')
-        f.write('data file {}.pos5, 4\n\n'.format(out))
-
-        f.write('object "terrain" class field\n')
-        f.write('component "positions" value 101\n')
-        f.write('component "connections" value 102\n')
-        f.write('component "data" value 104\n\n')
-
-        f.write('object "scalar" class field\n')
-        f.write('component "positions" value 101\n')
-        f.write('component "connections" value 102\n')
-        f.write('component "data" value 4\n\n')
-
-        f.write('object "vector" class field\n')
-        f.write('component "positions" value 101\n')
-        f.write('component "connections" value 102\n')
-        f.write('component "data" value 3\n\n')
-
-        f.write('object "vector" class field\n')
-        f.write('component "positions" value 105\n')
-        f.write('component "connections" value 106\n')
-        f.write('component "data" value 107\n\n')
-
-        f.write('object "circles" class field\n')
-        f.write('component "positions" value 108\n')
-        f.write('object "circle2" class field\n')
-        f.write('component "positions" value 109\n\n')
-
-        f.write('END\n')
+    plt.axes().set_aspect(1)
+    plt.xlim((min(xy[conal_idx_out,0]), max(xy[conal_idx_out,0])))
+    plt.ylim((min(xy[conal_idx_out,1]), max(xy[conal_idx_out,1])))
+    plt.axis('off')
+    plt.show()
