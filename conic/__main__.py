@@ -1,11 +1,9 @@
 import click
 from itertools import product
 import matplotlib.pyplot as plt
-from mpl_toolkits.axes_grid1 import make_axes_locatable
 import numpy as np
 from os.path import splitext
 from scipy.io import FortranFile
-from tqdm import tqdm
 import vtk
 
 
@@ -139,31 +137,34 @@ def extract(grid, name, shape):
 
 
 def planar_plot(rpts, zpts, field, vr, vz, u, altitude, length, angle, radius, aspect, K, out):
+    # Nautical miles
+    rpts /= 1852
+    zpts /= 1852
+    altitude /= 1852
+    length /= 1852
+
+    plt.figure(figsize=(20,20/aspect))
     plt.contourf(rpts, zpts, field[:,:,0].T)
-    plt.plot([-length/2, length/2], [altitude]*2, color='w', linewidth=5)
+    plt.plot([-length/2, length/2], [altitude]*2, color='w', linewidth=3)
     plt.colorbar(fraction=0.05, aspect=1.5/aspect/0.05)
 
     h = altitude - (rpts[0] + length/2) * np.sin(angle)
-    plt.plot([rpts[0], -length/2], [h, altitude], color='w', linewidth=2)
-
-    # mask = vz == 0.0
-    # vr = np.ma.masked_where(mask, vr)[::K,::K]
-    # vz = np.ma.masked_where(mask, vz)[::K,::K]
-    # plt.quiver(rpts[::K], zpts[::K], vr.T, vz.T, u[::K,::K].T, pivot='middle')
+    plt.plot([rpts[0], -length/2], [h, altitude], color='w')
 
     plt.xlim((rpts[0], rpts[-1]))
     plt.ylim((zpts[0], zpts[-1]))
 
+    plt.grid(color='#ffffff')
     plt.axes().set_aspect(aspect)
-    plt.axis('off')
     if out:
-        plt.savefig(out + '_planar.png', bbox_inches='tight', pad_inches=0, dpi=300)
+        plt.savefig(out, bbox_inches='tight', pad_inches=0)
     else:
         plt.show()
     plt.close('all')
 
 
 def conal_plot(xpts, ypts, field, velocity, runway, angle, radius, K, out):
+    plt.figure(figsize=(15,10))
     plt.contourf(xpts, ypts, field[:,:,0].T)
     plt.colorbar()
 
@@ -181,7 +182,7 @@ def conal_plot(xpts, ypts, field, velocity, runway, angle, radius, K, out):
     root = (xf[0,:] + xf[1,:]) / 2
     rmax = 2 * max(-xpts[0], xpts[-1], -ypts[0], ypts[-1])
     plt.plot([root[0], root[0] - rmax*np.cos(angle)],
-             [root[1], root[1] - rmax*np.sin(angle)], color='w', linewidth=2)
+             [root[1], root[1] - rmax*np.sin(angle)], color='w')
 
     for r in np.arange(radius, rmax, radius):
         angs = np.linspace(-np.pi/2, np.pi/2, 100)
@@ -191,7 +192,7 @@ def conal_plot(xpts, ypts, field, velocity, runway, angle, radius, K, out):
             np.array([[runway[0] / 2 + r * np.cos(angs[0])], [r * np.sin(angs[0])]]),
         ))
         pts = rot.dot(pts)
-        plt.plot(pts[0,:], pts[1,:], color='#ffffff', linewidth=2)
+        plt.plot(pts[0,:], pts[1,:], color='#ffffff')
 
     plt.xlim((xpts[0], xpts[-1]))
     plt.ylim((ypts[0], ypts[-1]))
@@ -199,44 +200,45 @@ def conal_plot(xpts, ypts, field, velocity, runway, angle, radius, K, out):
     mask = velocity == 0.0
     v = np.ma.masked_where(mask, velocity)[::K,::K,:]
     u = np.linalg.norm(v, axis=2)
-    plt.quiver(xpts[::K], ypts[::K], v[...,0].T, v[...,1].T, u.T, pivot='middle')
+    plt.barbs(xpts[::K], ypts[::K], v[...,0].T, v[...,1].T, u.T, length=7, linewidth=1.5)
 
     plt.axes().set_aspect(1)
     plt.axis('off')
     if out:
-        plt.savefig(out + '_conal.png', bbox_inches='tight', pad_inches=0, dpi=300)
+        plt.savefig(out, bbox_inches='tight', pad_inches=0)
     else:
         plt.show()
     plt.close('all')
 
 
 @click.command()
-@click.option('--mesh', type=str, default='mesh.dat')
-@click.option('--res', type=str, default='cont.res')
-@click.option('--center', type=float, nargs=4, default=(0,0,0,0))
-@click.option('--variable', type=click.Choice(['sqrtk', 't', 'w', 'ua']), prompt=True)
-@click.option('--arrow-skip-conal', type=int, default=15)
-@click.option('--arrow-skip-planar', type=int, default=30)
-@click.option('--attack-angle', type=float, default=4.5)
-@click.option('--rad', type=float, default=7408)
-@click.option('--h-res', type=float, default=100.0)
-@click.option('--v-res', type=float, default=10.0)
-@click.option('--runway', type=float, nargs=2, default=(1500, 250))
-@click.option('--aspect', type=float, default=5)
-@click.option('--show/--no-show', default=False)
+@click.option('--mesh', type=str, default='mesh.dat', help='The mesh file to read from')
+@click.option('--res', type=str, default='cont.res', help='The result file to read from')
+@click.option('--center', type=float, nargs=4, default=(0,0,0,0),
+              help='The coordinates of the runway (x, y, z, orientation)')
+@click.option('--variable', type=click.Choice(['sqrtk', 't', 'w', 'ua']), prompt=True,
+              help='The variable to plot')
+@click.option('--arrow-skip-conal', type=int, default=25, help='Barb density')
+@click.option('--attack-angle', type=float, default=4.5, help='Attack angle of incoming aircraft')
+@click.option('--rad', type=float, default=7408, help='Radial ring step size')
+@click.option('--h-res', type=float, default=100.0, help='Horizontal plotting resolution')
+@click.option('--v-res', type=float, default=10.0, help='Vertical plotting resolution')
+@click.option('--runway', type=float, nargs=2, default=(1500, 250), help='Runway length and width')
+@click.option('--aspect', type=float, default=5,
+              help='Aspect ratio of planar plot (vertical exaggeration factor)')
+@click.option('--show/--no-show', default=False, help='Show the plots instead of saving them')
+@click.option('--format', type=str, default='pdf', help='Format to save the plots in')
 def main(mesh, res, center, variable, arrow_skip_conal,
          arrow_skip_planar, attack_angle, rad,
-         h_res, v_res, runway, aspect, show):
+         h_res, v_res, runway, aspect, show, format):
 
     attack_angle /= 180 / np.pi
     approach_angle = ((90 - center[3]) % 360) / 180 * np.pi
 
     original_grid = make_vtk(mesh, res, center)
 
-    if show:
-        out = None
-    else:
-        out, _ = splitext(res)
+    basename, _ = splitext(res)
+    out = lambda base: None if show else '{}_{}.{}'.format(basename, base, format)
 
     plane, rpts, zpts = make_plane(original_grid, approach_angle, h_res, v_res)
     plane = interpolate(original_grid, plane)
@@ -247,10 +249,11 @@ def main(mesh, res, center, variable, arrow_skip_conal,
     vz = velocity[...,2]
     u = extract(plane, 'ua', (len(rpts), len(zpts)))
     planar_plot(rpts, zpts, field, vr, vz, u, center[2], runway[0],
-                attack_angle, rad, aspect, arrow_skip_planar, out)
+                attack_angle, rad, aspect, arrow_skip_planar, out('planar'))
 
     cone, xpts, ypts = make_cone(original_grid, center[2], attack_angle, h_res)
     cone = interpolate(original_grid, cone)
     field = extract(cone, variable, (len(xpts), len(ypts)))
     velocity = extract(cone, 'u', (len(xpts), len(ypts)))
-    conal_plot(xpts, ypts, field, velocity, runway, approach_angle, rad, arrow_skip_conal, out)
+    conal_plot(xpts, ypts, field, velocity, runway,
+               approach_angle, rad, arrow_skip_conal, out('conal'))

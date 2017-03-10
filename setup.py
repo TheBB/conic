@@ -11,7 +11,7 @@ setup(
     license='GPL3',
     url='https://github.com/TheBB/conic',
     py_modules=['conic'],
-    install_requires=['click', 'matplotlib', 'numpy', 'scipy', 'tqdm'],
+    install_requires=['click', 'matplotlib', 'numpy', 'scipy'],
     entry_points={
         'console_scripts': ['conic=conic.__main__:main'],
     },
