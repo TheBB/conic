@@ -136,7 +136,7 @@ def extract(grid, name, shape):
     return ret.reshape(new_shape)
 
 
-def planar_plot(rpts, zpts, field, vr, vz, u, altitude, length, angle, radius, aspect, K, out):
+def planar_plot(rpts, zpts, field, vr, vz, u, altitude, length, angle, radius, aspect, out):
     # Nautical miles
     rpts /= 1852
     zpts /= 1852
@@ -229,8 +229,7 @@ def conal_plot(xpts, ypts, field, velocity, runway, angle, radius, K, out):
 @click.option('--show/--no-show', default=False, help='Show the plots instead of saving them')
 @click.option('--format', type=str, default='pdf', help='Format to save the plots in')
 def main(mesh, res, center, variable, arrow_skip_conal,
-         arrow_skip_planar, attack_angle, rad,
-         h_res, v_res, runway, aspect, show, format):
+         attack_angle, rad, h_res, v_res, runway, aspect, show, format):
 
     attack_angle /= 180 / np.pi
     approach_angle = ((90 - center[3]) % 360) / 180 * np.pi
@@ -249,7 +248,7 @@ def main(mesh, res, center, variable, arrow_skip_conal,
     vz = velocity[...,2]
     u = extract(plane, 'ua', (len(rpts), len(zpts)))
     planar_plot(rpts, zpts, field, vr, vz, u, center[2], runway[0],
-                attack_angle, rad, aspect, arrow_skip_planar, out('planar'))
+                attack_angle, rad, aspect, out('planar'))
 
     cone, xpts, ypts = make_cone(original_grid, center[2], attack_angle, h_res)
     cone = interpolate(original_grid, cone)
