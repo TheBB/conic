@@ -56,7 +56,7 @@ def make_vtk(mesh, res, center):
         array.SetName(name)
         grid.GetPointData().AddArray(array)
 
-    return grid
+    return grid, coords[:,:,0,:]
 
 
 def make_plane(grid, angle, h_res, v_res):
@@ -163,10 +163,13 @@ def planar_plot(rpts, zpts, field, vr, vz, u, altitude, length, angle, radius, a
     plt.close('all')
 
 
-def conal_plot(xpts, ypts, field, velocity, runway, angle, radius, K, out):
+def conal_plot(xpts, ypts, field, velocity, terrain, runway, angle, radius, K, out):
     plt.figure(figsize=(15,10))
     plt.contourf(xpts, ypts, field[:,:,0].T)
     plt.colorbar()
+
+    cp = plt.contour(terrain[:,:,0], terrain[:,:,1], terrain[:,:,2],
+                     levels=[0.1], colors='#000000', linewidths=2)
 
     rot = np.array([
         [np.cos(angle), -np.sin(angle)],
@@ -234,7 +237,7 @@ def main(mesh, res, center, variable, arrow_skip_conal,
     attack_angle /= 180 / np.pi
     approach_angle = ((90 - center[3]) % 360) / 180 * np.pi
 
-    original_grid = make_vtk(mesh, res, center)
+    original_grid, terrain = make_vtk(mesh, res, center)
 
     basename, _ = splitext(res)
     out = lambda base: None if show else '{}_{}.{}'.format(basename, base, format)
@@ -254,5 +257,5 @@ def main(mesh, res, center, variable, arrow_skip_conal,
     cone = interpolate(original_grid, cone)
     field = extract(cone, variable, (len(xpts), len(ypts)))
     velocity = extract(cone, 'u', (len(xpts), len(ypts)))
-    conal_plot(xpts, ypts, field, velocity, runway,
+    conal_plot(xpts, ypts, field, velocity, terrain, runway,
                approach_angle, rad, arrow_skip_conal, out('conal'))
