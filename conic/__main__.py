@@ -214,6 +214,31 @@ def conal_plot(xpts, ypts, field, velocity, terrain, runway, angle, radius, K, o
     plt.close('all')
 
 
+def mesh_plot(xpts, ypts, height, out):
+    plt.figure(figsize=(25,25))
+    levels = np.linspace(0, max(height.float), 20)[1:]
+    plt.contour(xpts, ypts, height, levels=levels, colors='#333333')
+    plt.contour(xpts, ypts, height, levels=[0], colors='#000000', linewidth=2)
+
+    cmap = plt.get_cmap('terrain')
+    cmap.set_under(color='#0c0c55')
+    plt.pcolormesh(
+        terrain[:,:,0], terrain[:,:,1], terrain[:,:,2],
+        shading='flat', edgecolors=(0, 0, 0, 0.3), cmap=cmap, vmin=0.1
+    )
+
+    plt.xlim(min(xpts.flat), max(xpts.flat))
+    plt.ylim(min(ypts.flat), max(ypts.flat))
+
+    plt.axes().set_aspect(1)
+    plt.axis('off')
+    if out:
+        plt.savefig(out, bbox_inches='tight', pad_inches=0)
+    else:
+        plt.show()
+    plt.close('all')
+
+
 @click.command()
 @click.option('--mesh', type=str, default='mesh.dat', help='The mesh file to read from')
 @click.option('--res', type=str, default='cont.res', help='The result file to read from')
@@ -230,9 +255,13 @@ def conal_plot(xpts, ypts, field, velocity, terrain, runway, angle, radius, K, o
 @click.option('--aspect', type=float, default=5,
               help='Aspect ratio of planar plot (vertical exaggeration factor)')
 @click.option('--show/--no-show', default=False, help='Show the plots instead of saving them')
-@click.option('--format', type=str, default='pdf', help='Format to save the plots in')
+@click.option('--fmt', type=str, default='pdf', help='Format to save the plots in')
+@click.option('--plot-planar/--no-plot-planar', default=True, help='Whether to create a planar plot')
+@click.option('--plot-conal/--no-plot-conal', default=True, help='Whether to create a conal plot')
+@click.option('--plot-mesh/--no-plot-mesh', default=False, help='Whether to create a mesh plot')
 def main(mesh, res, center, variable, arrow_skip_conal,
-         attack_angle, rad, h_res, v_res, runway, aspect, show, format):
+         attack_angle, rad, h_res, v_res, runway, aspect, show, fmt,
+         plot_mesh, plot_planar, plot_conal):
 
     attack_angle /= 180 / np.pi
     approach_angle = ((90 - center[3]) % 360) / 180 * np.pi
@@ -240,22 +269,27 @@ def main(mesh, res, center, variable, arrow_skip_conal,
     original_grid, terrain = make_vtk(mesh, res, center)
 
     basename, _ = splitext(res)
-    out = lambda base: None if show else '{}_{}.{}'.format(basename, base, format)
+    out = lambda base: None if show else '{}_{}.{}'.format(basename, base, fmt)
 
-    plane, rpts, zpts = make_plane(original_grid, approach_angle, h_res, v_res)
-    plane = interpolate(original_grid, plane)
-    field = extract(plane, variable, (len(rpts), len(zpts)))
-    velocity = extract(plane, 'u', (len(rpts), len(zpts)))
-    norm = np.array([np.cos(approach_angle), np.sin(approach_angle), 0])
-    vr = np.tensordot(velocity, norm, axes=1)
-    vz = velocity[...,2]
-    u = extract(plane, 'ua', (len(rpts), len(zpts)))
-    planar_plot(rpts, zpts, field, vr, vz, u, center[2], runway[0],
-                attack_angle, rad, aspect, out('planar'))
+    if plot_mesh:
+        mesh_plot(terrain[:,:,0], terrain[:,:,1], terrain[:,:,2], out('mesh'))
 
-    cone, xpts, ypts = make_cone(original_grid, center[2], attack_angle, h_res)
-    cone = interpolate(original_grid, cone)
-    field = extract(cone, variable, (len(xpts), len(ypts)))
-    velocity = extract(cone, 'u', (len(xpts), len(ypts)))
-    conal_plot(xpts, ypts, field, velocity, terrain, runway,
-               approach_angle, rad, arrow_skip_conal, out('conal'))
+    if plot_planar:
+        plane, rpts, zpts = make_plane(original_grid, approach_angle, h_res, v_res)
+        plane = interpolate(original_grid, plane)
+        field = extract(plane, variable, (len(rpts), len(zpts)))
+        velocity = extract(plane, 'u', (len(rpts), len(zpts)))
+        norm = np.array([np.cos(approach_angle), np.sin(approach_angle), 0])
+        vr = np.tensordot(velocity, norm, axes=1)
+        vz = velocity[...,2]
+        u = extract(plane, 'ua', (len(rpts), len(zpts)))
+        planar_plot(rpts, zpts, field, vr, vz, u, center[2], runway[0],
+                    attack_angle, rad, aspect, out('planar'))
+
+    if plot_conal:
+        cone, xpts, ypts = make_cone(original_grid, center[2], attack_angle, h_res)
+        cone = interpolate(original_grid, cone)
+        field = extract(cone, variable, (len(xpts), len(ypts)))
+        velocity = extract(cone, 'u', (len(xpts), len(ypts)))
+        conal_plot(xpts, ypts, field, velocity, terrain, runway,
+                   approach_angle, rad, arrow_skip_conal, out('conal'))
