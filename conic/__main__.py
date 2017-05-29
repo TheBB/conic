@@ -241,14 +241,14 @@ def conal_plot(xpts, ypts, field, velocity, terrain, runway, angle, radius, K, o
 
 def mesh_plot(xpts, ypts, height, out):
     plt.figure(figsize=(25,25))
-    levels = np.linspace(0, max(height.float), 20)[1:]
+    levels = np.linspace(0, max(height.flat), 20)[1:]
     plt.contour(xpts, ypts, height, levels=levels, colors='#333333')
     plt.contour(xpts, ypts, height, levels=[0], colors='#000000', linewidth=2)
 
     cmap = plt.get_cmap('terrain')
     cmap.set_under(color='#0c0c55')
     plt.pcolormesh(
-        terrain[:,:,0], terrain[:,:,1], terrain[:,:,2],
+        xpts, ypts, height,
         shading='flat', edgecolors=(0, 0, 0, 0.3), cmap=cmap, vmin=0.1
     )
 
