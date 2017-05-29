@@ -7,6 +7,11 @@ from scipy.io import FortranFile
 import vtk
 
 
+NAUTICAL_MILE = 1852.0          # in meters
+KNOT = NAUTICAL_MILE / 3600     # in meters/second
+FOOT = 0.3048                   # in meters
+
+
 def make_vtk(mesh, res, center):
 
     with FortranFile(mesh, 'r') as f:
@@ -132,30 +137,42 @@ def extract(grid, name, shape):
     ret = np.zeros((np.prod(shape), ncomps))
     for n in range(len(ret)):
         ret[n,:] = array.GetTuple(n)
+    factor = {
+        'sqrtk': KNOT,
+        'ua': KNOT,
+        'u': KNOT,
+    }.get(name, None)
+    if factor is None:
+        print("Warning: Couldn't find conversion factor for field: '{}'".format(name))
+    else:
+        ret /= factor
     new_shape = list(shape) + [ncomps]
     return ret.reshape(new_shape)
 
 
 def planar_plot(rpts, zpts, field, vr, vz, u, altitude, length, angle, radius, aspect, out):
     # Nautical miles
-    rpts /= 1852
-    zpts /= 1852
-    altitude /= 1852
-    length /= 1852
+    rpts /= NAUTICAL_MILE
+    zpts /= FOOT
+    altitude /= FOOT
+    length /= NAUTICAL_MILE
 
     plt.figure(figsize=(20,20/aspect))
     plt.contourf(rpts, zpts, field[:,:,0].T)
     plt.plot([-length/2, length/2], [altitude]*2, color='w', linewidth=3)
-    plt.colorbar(fraction=0.05, aspect=1.5/aspect/0.05)
+    cb = plt.colorbar(fraction=0.05, aspect=1.5/aspect/0.05)
+    cb.set_label('Turbulent kinetic energy [kt]')
 
-    h = altitude - (rpts[0] + length/2) * np.sin(angle)
+    h = altitude - (rpts[0] + length/2) * np.sin(angle) * NAUTICAL_MILE / FOOT
     plt.plot([rpts[0], -length/2], [h, altitude], color='w')
 
     plt.xlim((rpts[0], rpts[-1]))
     plt.ylim((zpts[0], zpts[-1]))
+    plt.xlabel('Horizontal distance [nmi]')
+    plt.ylabel('Altitude [ft]')
 
     plt.grid(color='#ffffff')
-    plt.axes().set_aspect(aspect)
+    plt.axes().set_aspect(aspect * FOOT / NAUTICAL_MILE)
     if out:
         plt.savefig(out, bbox_inches='tight', pad_inches=0)
     else:
@@ -166,7 +183,8 @@ def planar_plot(rpts, zpts, field, vr, vz, u, altitude, length, angle, radius, a
 def conal_plot(xpts, ypts, field, velocity, terrain, runway, angle, radius, K, out):
     plt.figure(figsize=(15,10))
     plt.contourf(xpts, ypts, field[:,:,0].T)
-    plt.colorbar()
+    cb = plt.colorbar()
+    cb.set_label('Turbulent kinetic energy [kt]')
 
     cp = plt.contour(terrain[:,:,0], terrain[:,:,1], terrain[:,:,2],
                      levels=[0.1], colors='#000000', linewidths=2)
@@ -187,7 +205,7 @@ def conal_plot(xpts, ypts, field, velocity, terrain, runway, angle, radius, K, o
     plt.plot([root[0], root[0] - rmax*np.cos(angle)],
              [root[1], root[1] - rmax*np.sin(angle)], color='w')
 
-    for r in np.arange(radius, rmax, radius):
+    for r in np.arange(radius * NAUTICAL_MILE, rmax, radius * NAUTICAL_MILE):
         angs = np.linspace(-np.pi/2, np.pi/2, 100)
         pts = np.hstack((
             np.array([runway[0] / 2 + r * np.cos(angs), r * np.sin(angs)]),
@@ -203,8 +221,15 @@ def conal_plot(xpts, ypts, field, velocity, terrain, runway, angle, radius, K, o
     mask = velocity == 0.0
     v = np.ma.masked_where(mask, velocity)[::K,::K,:]
     u = np.linalg.norm(v, axis=2)
-    plt.barbs(xpts[::K], ypts[::K], v[...,0].T, v[...,1].T, u.T, length=7, linewidth=1.5)
+    plt.barbs(xpts[::K], ypts[::K], v[...,0].T, v[...,1].T, u.T,
+              length=7, linewidth=1.5,
+              barb_increments={
+                  'half': 5 / KNOT,
+                  'full': 10 / KNOT,
+                  'flag': 50 / KNOT,
+              })
 
+    plt.title('Rings spaced by {} nmi'.format(radius))
     plt.axes().set_aspect(1)
     plt.axis('off')
     if out:
@@ -248,7 +273,7 @@ def mesh_plot(xpts, ypts, height, out):
               help='The variable to plot')
 @click.option('--arrow-skip-conal', type=int, default=25, help='Barb density')
 @click.option('--attack-angle', type=float, default=4.5, help='Attack angle of incoming aircraft')
-@click.option('--rad', type=float, default=7408, help='Radial ring step size')
+@click.option('--rad', type=float, default=4, help='Radial ring step size [nmi]')
 @click.option('--h-res', type=float, default=100.0, help='Horizontal plotting resolution')
 @click.option('--v-res', type=float, default=10.0, help='Vertical plotting resolution')
 @click.option('--runway', type=float, nargs=2, default=(1500, 250), help='Runway length and width')
